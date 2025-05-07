@@ -5,7 +5,7 @@ set -e
 # Variables (update if needed)
 SERVICE_NAME="x-ui-monitor"
 BINARY_NAME="x-ui-monitor"
-BUILD_PATH="./cmd/" # change if your main.go is elsewhere
+BUILD_PATH="./cmd/main.go" # change if your main.go is elsewhere
 INSTALL_DIR="/usr/local/x-ui"
 SERVICE_FILE="x-ui-monitor.service"
 
