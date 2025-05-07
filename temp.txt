@@ -1,0 +1,248 @@
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"net"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/nxadm/tail"
+	"go.etcd.io/bbolt"
+)
+
+const (
+	dbFile        = "xui-monitor.db"
+	ttlSeconds    = 120 // 2 minutes
+	bucketName    = "active_ips"
+	accessLogPath = "/path/to/access.log" // Change this
+)
+
+type BoltDB struct {
+	db *bbolt.DB
+}
+
+func NewBoltDB(path string) *BoltDB {
+	db, err := bbolt.Open(path, 0666, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Ensure bucket exists
+	db.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+		return err
+	})
+
+	return &BoltDB{db: db}
+}
+
+func (b *BoltDB) AddIP(inbound, ip string) error {
+	key := inbound + ":" + ip
+	value := []byte(time.Now().Format(time.RFC3339))
+
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket([]byte(bucketName)).Put([]byte(key), value)
+	})
+}
+
+func (b *BoltDB) GetActiveIPCount(inbound string) (int, error) {
+	now := time.Now()
+	count := 0
+
+	err := b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketName))
+
+		c := bucket.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			key := string(k)
+			if strings.HasPrefix(key, inbound+":") {
+				// Parse timestamp
+				ts, err := time.Parse(time.RFC3339, string(v))
+				if err != nil {
+					bucket.Delete(k) // Corrupted entry
+					continue
+				}
+				if now.Sub(ts) < ttlSeconds*time.Second {
+					count++
+				} else {
+					bucket.Delete(k) // Expired entry
+				}
+			}
+		}
+		return nil
+	})
+
+	return count, err
+}
+
+func (b *BoltDB) ListActiveIPs(inbound string) ([]string, error) {
+	now := time.Now()
+	var ips []string
+
+	err := b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketName))
+
+		c := bucket.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			key := string(k)
+			if strings.HasPrefix(key, inbound+":") {
+				ip := strings.TrimPrefix(key, inbound+":")
+				ts, err := time.Parse(time.RFC3339, string(v))
+				if err != nil {
+					bucket.Delete(k)
+					continue
+				}
+				if now.Sub(ts) < ttlSeconds*time.Second {
+					ips = append(ips, ip)
+				} else {
+					bucket.Delete(k)
+				}
+			}
+		}
+		return nil
+	})
+
+	return ips, err
+}
+
+func WatchLogFile(filePath string, db *BoltDB) {
+	t, err := tail.TailFile(filePath, tail.Config{
+		Follow: true,
+		ReOpen: true, // <- THIS is key to surviving rotations!
+		Logger: tail.DiscardingLogger,
+	})
+
+	if err != nil {
+		log.Fatalf("Failed to tail file: %v", err)
+	}
+
+	for line := range t.Lines {
+		processLogLine(line.Text, db)
+	}
+}
+
+func processLogLine(line string, db *BoltDB) {
+	fromRegex := regexp.MustCompile(`from (\[?[a-fA-F0-9:.]+\]?):\d+ accepted .* \[(.*?)\]`)
+	matches := fromRegex.FindStringSubmatch(line)
+	if len(matches) < 3 {
+		return
+	}
+
+	clientIP := strings.Trim(matches[1], "[]")
+	inboundInfo := matches[2]
+
+	inboundParts := strings.Split(inboundInfo, " ")
+	if len(inboundParts) < 1 {
+		return
+	}
+	inboundTag := strings.Split(inboundParts[0], ">>")[0]
+	inboundTag = strings.TrimSpace(inboundTag)
+
+	if isLocalOrPrivateIP(clientIP) {
+		return
+	}
+
+	log.Printf("✔️ Accepted IP: %s on inbound %s\n", clientIP, inboundTag)
+	db.AddIP(inboundTag, clientIP)
+}
+
+func isLocalOrPrivateIP(ip string) bool {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return true
+	}
+	if parsedIP.IsLoopback() {
+		return true
+	}
+	privateBlocks := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+	}
+	for _, block := range privateBlocks {
+		_, subnet, _ := net.ParseCIDR(block)
+		if subnet.Contains(parsedIP) {
+			return true
+		}
+	}
+	return false
+}
+
+func StartAPIServer(db *BoltDB) {
+	r := mux.NewRouter()
+
+	r.HandleFunc("/users/count/{inbound}", func(w http.ResponseWriter, r *http.Request) {
+		inbound := mux.Vars(r)["inbound"]
+		count, err := db.GetActiveIPCount(inbound)
+		if err != nil {
+			http.Error(w, "Error", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]int{"online_users": count})
+	})
+
+	r.HandleFunc("/users/list/{inbound}", func(w http.ResponseWriter, r *http.Request) {
+		inbound := mux.Vars(r)["inbound"]
+		ips, err := db.ListActiveIPs(inbound)
+		if err != nil {
+			http.Error(w, "Error", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string][]string{"active_ips": ips})
+	})
+
+	r.HandleFunc("/users/total", func(w http.ResponseWriter, r *http.Request) {
+		type result struct {
+			Total    int            `json:"total_users"`
+			Inbounds map[string]int `json:"inbounds"`
+		}
+
+		stats := result{Inbounds: make(map[string]int)}
+		now := time.Now()
+
+		db.db.View(func(tx *bbolt.Tx) error {
+			bucket := tx.Bucket([]byte(bucketName))
+			c := bucket.Cursor()
+
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				key := string(k)
+				parts := strings.SplitN(key, ":", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				inbound := parts[0]
+				ts, err := time.Parse(time.RFC3339, string(v))
+				if err != nil || now.Sub(ts) > ttlSeconds*time.Second {
+					continue
+				}
+				stats.Inbounds[inbound]++
+				stats.Total++
+			}
+			return nil
+		})
+
+		json.NewEncoder(w).Encode(stats)
+	})
+
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	log.Println("🌐 API ready on :8080")
+	http.ListenAndServe(":8080", r)
+}
+
+func main() {
+	log.Println("🚀 XUI Monitor PRO+ Starting...")
+	db := NewBoltDB(dbFile)
+
+	go WatchLogFile(accessLogPath, db)
+
+	StartAPIServer(db)
+}
