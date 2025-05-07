@@ -7,6 +7,7 @@ import (
 	"x-ui-monitor/internal/usecase"
 
 	"github.com/gorilla/mux"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 type Server struct {
@@ -20,6 +21,7 @@ func StartServer(userUsecase *usecase.UserUsecase) {
 	router.HandleFunc("/users/total", server.GetUserCount).Methods("GET")
 	router.HandleFunc("/users/count/{inbound}", server.GetUserCountByInbound).Methods("GET")
 	router.HandleFunc("/users/list/{inbound}", server.GetActiveIPsByInbound).Methods("GET")
+	router.HandleFunc("/system/ram-usage", server.CheckHighRAMUsage).Methods("GET")
 
 	http.ListenAndServe(":5000", router)
 }
@@ -55,4 +57,23 @@ func (s *Server) GetActiveIPsByInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string][]string{"active_ips": ips})
+}
+
+func (s *Server) CheckHighRAMUsage(w http.ResponseWriter, r *http.Request) {
+	usageHigh, err := isRAMUsageHigh()
+	if err != nil {
+		http.Error(w, "Failed to get RAM usage", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]bool{"high_usage": usageHigh})
+}
+
+func isRAMUsageHigh() (bool, error) {
+	vmStat, err := mem.VirtualMemory()
+	if err != nil {
+		return false, err
+	}
+
+	return vmStat.UsedPercent > 90.0, nil
 }
