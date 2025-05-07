@@ -52,7 +52,6 @@ func TailLogFile(filePath string, userUsecase *usecase.UserUsecase) {
 }
 
 func processLogLine(line string, userUsecase *usecase.UserUsecase) {
-	log.Printf(line)
 	fromRegex := regexp.MustCompile(`from (\[?[a-fA-F0-9:.]+\]?):\d+ accepted .* \[(.*?)\]`)
 	matches := fromRegex.FindStringSubmatch(line)
 	if len(matches) < 3 {
