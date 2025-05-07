@@ -13,10 +13,11 @@ const (
 	dbFile        = "xui-monitor.db"
 	ttlSeconds    = 120 // 2 minutes
 	bucketName    = "active_ips"
-	accessLogPath = "/path/to/access.log" // Change this
+	accessLogPath = "/usr/local/x-ui/access.log" // Change this
 )
 
 func main() {
+	log.Println("🚀 XUI Monitor PRO+ Starting...")
 	db, err := bolt.NewBoltDB(dbFile, bucketName)
 	if err != nil {
 		log.Fatalf("Failed to initialize BoltDB: %v", err)

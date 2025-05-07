@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"x-ui-monitor/internal/usecase"
@@ -23,6 +24,7 @@ func StartServer(userUsecase *usecase.UserUsecase) {
 	router.HandleFunc("/users/list/{inbound}", server.GetActiveIPsByInbound).Methods("GET")
 	router.HandleFunc("/system/ram-usage", server.CheckHighRAMUsage).Methods("GET")
 
+	log.Println("🌐 API ready on :5000")
 	http.ListenAndServe(":5000", router)
 }
 

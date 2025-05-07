@@ -35,6 +35,7 @@ import (
 // }
 
 func TailLogFile(filePath string, userUsecase *usecase.UserUsecase) {
+	log.Println("👀 Start watching log file ...")
 	t, err := tail.TailFile(filePath, tail.Config{
 		Follow: true,
 		ReOpen: true, // <- THIS is key to surviving rotations!
