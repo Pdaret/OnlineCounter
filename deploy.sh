@@ -8,7 +8,7 @@ BINARY_NAME="x-ui-monitor"
 BUILD_PATH="./cmd/app/" # change if your main.go is elsewhere
 INSTALL_DIR="/usr/local/x-ui"
 SERVICE_FILE="x-ui-monitor.service"
-XUI_DB_FILE="./x-ui-kraken-geo.db" # Change path if needed
+XUI_DB_FILE="./x-ui-viking.db" # Change path if needed
 
 echo "🌐 Installing Nginx..."
 sudo apt update
@@ -21,7 +21,7 @@ EOF
 
 echo "🗂️ Copying x-ui.db to /etc/x-ui..."
 if [ -f "$XUI_DB_FILE" ]; then
-    x-ui stop
+    sudo x-ui stop
     sudo rm -f /etc/x-ui/x-ui.db
     sudo cp "$XUI_DB_FILE" /etc/x-ui/x-ui.db
     sudo chmod 600 /etc/x-ui/x-ui.db
