@@ -21,6 +21,7 @@ EOF
 
 echo "🗂️ Copying x-ui.db to /etc/x-ui..."
 if [ -f "$XUI_DB_FILE" ]; then
+    x-ui stop
     sudo rm -f /etc/x-ui/x-ui.db
     sudo cp "$XUI_DB_FILE" /etc/x-ui/x-ui.db
     sudo chmod 600 /etc/x-ui/x-ui.db
