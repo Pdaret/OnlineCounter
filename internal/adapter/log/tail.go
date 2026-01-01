@@ -1,10 +1,13 @@
 package log
 
 import (
+	"errors"
 	"log"
 	"net"
 	"regexp"
 	"strings"
+	"sync/atomic"
+	"time"
 	"x-ui-monitor/internal/usecase"
 
 	"github.com/hpcloud/tail"
@@ -34,20 +37,29 @@ import (
 // 	}
 // }
 
+var lastLogTime atomic.Int64
+
 func TailLogFile(filePath string, userUsecase *usecase.UserUsecase) {
+	// log.Println("👀 Start watching log file ...")
+	// t, err := tail.TailFile(filePath, tail.Config{
+	// 	Follow: true,
+	// 	ReOpen: true, // <- THIS is key to surviving rotations!
+	// 	Logger: tail.DiscardingLogger,
+	// })
+
+	// if err != nil {
+	// 	log.Fatalf("Failed to tail file: %v", err)
+	// }
+
+	// for line := range t.Lines {
+	// 	processLogLine(line.Text, userUsecase)
+	// }
 	log.Println("👀 Start watching log file ...")
-	t, err := tail.TailFile(filePath, tail.Config{
-		Follow: true,
-		ReOpen: true, // <- THIS is key to surviving rotations!
-		Logger: tail.DiscardingLogger,
-	})
 
-	if err != nil {
-		log.Fatalf("Failed to tail file: %v", err)
-	}
-
-	for line := range t.Lines {
-		processLogLine(line.Text, userUsecase)
+	for {
+		err := tailOnce(filePath, userUsecase)
+		log.Printf("⚠️ Tail stopped: %v — restarting in 2s\n", err)
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -71,6 +83,8 @@ func processLogLine(line string, userUsecase *usecase.UserUsecase) {
 	if isLocalOrPrivateIP(clientIP) {
 		return
 	}
+
+	// atomic.StoreInt64(&lastLogTime, time.Now().Unix())
 
 	log.Printf("✔️ Accepted IP: %s on inbound %s\n", clientIP, inboundTag)
 	userUsecase.AddUser(inboundTag, clientIP)
@@ -97,4 +111,37 @@ func isLocalOrPrivateIP(ip string) bool {
 		}
 	}
 	return false
+}
+
+func tailOnce(filePath string, userUsecase *usecase.UserUsecase) error {
+	t, err := tail.TailFile(filePath, tail.Config{
+		Follow: true,
+		ReOpen: true,
+		Poll:   true,
+		Logger: tail.DiscardingLogger,
+	})
+	if err != nil {
+		return err
+	}
+	defer t.Cleanup()
+	defer t.Stop()
+
+	var lastLog atomic.Int64
+	lastLog.Store(time.Now().Unix())
+
+	for {
+		select {
+		case line, ok := <-t.Lines:
+			if !ok {
+				return errors.New("tail channel closed")
+			}
+			lastLog.Store(time.Now().Unix())
+			processLogLine(line.Text, userUsecase)
+
+		case <-time.After(30 * time.Second):
+			if time.Since(time.Unix(lastLog.Load(), 0)) > 30*time.Second {
+				return errors.New("no log activity detected")
+			}
+		}
+	}
 }
