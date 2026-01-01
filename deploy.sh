@@ -10,26 +10,26 @@ INSTALL_DIR="/usr/local/x-ui"
 SERVICE_FILE="x-ui-monitor.service"
 XUI_DB_FILE="./x-ui-toyo.db" # Change path if needed
 
-echo "🌐 Installing Nginx..."
-sudo apt update
-sudo apt install -y nginx
+# echo "🌐 Installing Nginx..."
+# sudo apt update
+# sudo apt install -y nginx
 
-echo "📦 Installing 3x-ui via script..."
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) <<EOF
-# pressing Enter to accept defaults
-EOF
+# echo "📦 Installing 3x-ui via script..."
+# bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) <<EOF
+# # pressing Enter to accept defaults
+# EOF
 
-echo "🗂️ Copying x-ui.db to /etc/x-ui..."
-if [ -f "$XUI_DB_FILE" ]; then
-    sudo x-ui stop
-    sudo rm -f /etc/x-ui/x-ui.db
-    sudo cp "$XUI_DB_FILE" /etc/x-ui/x-ui.db
-    sudo chmod 600 /etc/x-ui/x-ui.db
-    sudo x-ui restart
-    echo "✅ x-ui.db replaced successfully."
-else
-    echo "❌ x-ui.db file not found at $XUI_DB_FILE"
-fi
+# echo "🗂️ Copying x-ui.db to /etc/x-ui..."
+# if [ -f "$XUI_DB_FILE" ]; then
+#     sudo x-ui stop
+#     sudo rm -f /etc/x-ui/x-ui.db
+#     sudo cp "$XUI_DB_FILE" /etc/x-ui/x-ui.db
+#     sudo chmod 600 /etc/x-ui/x-ui.db
+#     sudo x-ui restart
+#     echo "✅ x-ui.db replaced successfully."
+# else
+#     echo "❌ x-ui.db file not found at $XUI_DB_FILE"
+# fi
 
 echo "🔧 Building Go project..."
 go build -o "$BINARY_NAME" "$BUILD_PATH"
@@ -54,10 +54,10 @@ sudo systemctl enable $SERVICE_NAME.service
 echo "🚀 Starting service..."
 sudo systemctl restart $SERVICE_NAME.service
 
-echo "✏️ FIXING DNS ..."
-chmod +x fix-dns.sh fix-systemd-dns.sh
-./fix-dns.sh
-./fix-systemd-dns.sh
+# echo "✏️ FIXING DNS ..."
+# chmod +x fix-dns.sh fix-systemd-dns.sh
+# ./fix-dns.sh
+# ./fix-systemd-dns.sh
 
 
 echo "✅ Full deployment complete!"
